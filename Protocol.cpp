@@ -474,7 +474,11 @@ void evaluateCommand() {
      s_struct((uint8_t*)&att,6);
      break;
    case MSP_ALTITUDE:
-     s_struct((uint8_t*)&alt,6);
+     //s_struct((uint8_t*)&alt,6);
+     headSerialReply(10);
+     serialize32(alt.EstAlt);
+     serialize16(alt.vario);
+     serialize32(AltHold); // added AltHold
      break;
    case MSP_ANALOG:
      s_struct((uint8_t*)&analog,7);
