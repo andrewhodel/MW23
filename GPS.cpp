@@ -593,7 +593,6 @@ void GPS_reset_nav(void) {
   uint8_t i;
   
   for(i=0;i<2;i++) {
-    nav_rated[i] = 0;
     nav[i] = 0;
     #if defined(I2C_GPS)
       GPS_I2C_command(I2C_GPS_COMMAND_STOP_NAV,0);
@@ -801,29 +800,167 @@ static void GPS_calc_location_error( int32_t* target_lat, int32_t* target_lng, i
 // Calculate nav_lat and nav_lon from the x and y error and the speed
 //
 static void GPS_calc_poshold(void) {
-  int32_t d;
-  int32_t target_speed;
-  uint8_t axis;
-  
-  for (axis=0;axis<2;axis++) {
-    target_speed = get_P(error[axis], &posholdPID_PARAM); // calculate desired speed from lat/lon error
-    target_speed = constrain(target_speed,-100,100);      // Constrain the target speed in poshold mode to 1m/s it helps avoid runaways..
-    rate_error[axis] = target_speed - actual_speed[axis]; // calc the speed error
 
-    nav[axis]      =
-        get_P(rate_error[axis],                                               &poshold_ratePID_PARAM)
-       +get_I(rate_error[axis] + error[axis], &dTnav, &poshold_ratePID[axis], &poshold_ratePID_PARAM);
+      // first convert att.heading to 360 degrees
+      int16_t copterHeading = att.heading;
+      if (copterHeading < 0) {
+        // negative, add 360
+        copterHeading += 360;
+      }
 
-    d = get_D(error[axis],                    &dTnav, &poshold_ratePID[axis], &poshold_ratePID_PARAM);
+      // this is the bearing of where we want to go
+      int16_t desiredHdg = target_bearing/100; // this is a value of 0-360
 
-    d = constrain(d, -2000, 2000);
-    // get rid of noise
-    if(abs(actual_speed[axis]) < 50) d = 0;
+      // heading offset for copter
+      // this effectively rotates the XY plane so that the copter is facing toward 0 for the following maths
+      int16_t hdgOffset = desiredHdg-att.heading;
+      if (hdgOffset < 0) {
+        // add 360
+        hdgOffset += 360;
+      } else if (hdgOffset > 360) {
+        // subtract 360
+        hdgOffset -= 360;
+      }
 
-    nav[axis] +=d;
-    nav[axis]  = constrain(nav[axis], -NAV_BANK_MAX, NAV_BANK_MAX);
-    navPID[axis].integrator = poshold_ratePID[axis].integrator;
-  }
+      // now with the offset we calc which quadrant we are moving too relative to the copter heading
+      // xyRatio is the difference between quadrant max and hdgOffset
+      int8_t xyRatio = 0;
+
+      // to calc ROLL and PITCH ratios
+      uint8_t t = 0; // temp
+      // pR and rR are 1 if xyRatio == 45
+      float pR = 1;
+      float rR = 1;
+
+// quadrant xyRatio explanation
+//
+// the 4 quadrants represent bearings of 0-90, 90-180, 180-270, and 270-360
+// they are labeled TR, BR, BL, and TL
+//
+// we use the offset to do the math like the copter is heading toward 0 degrees
+// in each quadrant the signedness (+/-) of the copter angle is noted with roll and pitch
+//
+// the distance is used to determine the angle of the copter required to get to a distant point
+// it is then mapped to the roll and pitch using a ratio which is a function of the heading to that point
+//
+// if you were to draw a line to any of the p points, the pitch angle value would remain at 1* the distance calculation
+// and the roll angle value would be a ratio of the point p's degree diff from the center of that quadrant (for TR that would be 45deg)
+//
+// if you were to draw a line to any of the r points, the roll angle value would remain at 1* the distance calculation
+// and the pitch angle value would be a ratio of the point r's degree diff from the center of that quadrant (for BL that would be 225deg)
+//
+// if the destination point were to be exactly the center of the quadrant (for TL that would be 315deg)
+// then roll and pitch would both equal 1* the distance calculation
+//
+//   TL                0                TR
+//   -roll +pitch      |      +roll +pitch
+//                   p | p
+//                     |
+//                     |
+//                     |
+//                     |
+//       r             |              r
+//   270--------------------------------90
+//       r             |              r
+//                     |
+//                     |
+//                     |
+//                     |
+//                   p | p
+//   -roll -pitch      |      +roll -pitch
+//   BL               180               BR
+
+      if (hdgOffset <= 90) {
+        // top right quadrant 0 to 90
+        xyRatio = 90-hdgOffset;
+
+        if (xyRatio < 45) {
+          t = 45-xyRatio; // gives a value from 0 to 45
+          // r is high, mod p
+          pR = (float)t/45;
+        } else if (xyRatio > 45) {
+          t = 90-xyRatio; // gives a value from 0 to 45
+          // p is high, mod r
+          rR = 1.0-((float)t/45);
+        }
+
+      } else if (hdgOffset <=180) {
+        // bottom right quadrant 90 to 180
+        xyRatio = 180-hdgOffset;
+
+        if (xyRatio < 45) {
+          t = 45-xyRatio; // gives a value from 0 to 45
+          // p is high, mod r
+          rR = (float)t/45;
+        } else if (xyRatio > 45) {
+          t = 90-xyRatio; // gives a value from 0 to 45
+          // r is high, mod p
+          pR = 1.0-((float)t/45);
+        }
+        // pitch here is neg
+        pR = -abs(pR);
+
+      } else if (hdgOffset <= 270) {
+        // bottom left quadrant 180 to 270
+        xyRatio = 270-hdgOffset;
+
+        if (xyRatio < 45) {
+          t = 45-xyRatio; // gives a value from 0 to 45
+          // r is high, mod p
+          pR = (float)t/45;
+        } else if (xyRatio > 45) {
+          t = 90-xyRatio; // gives a value from 0 to 45
+          // p is high, mod r
+          rR = 1.0-((float)t/45);
+        }
+        // pitch and roll here are neg
+        pR = -abs(pR);
+        rR = -abs(rR);
+
+      } else {
+        // top left quadrant 270 to 360
+        xyRatio = 360-hdgOffset;
+
+        if (xyRatio < 45) {
+          t = 45-xyRatio; // gives a value from 0 to 45
+          // p is high, mod r
+          rR = (float)t/45;
+        } else if (xyRatio > 45) {
+          t = 90-xyRatio; // gives a value from 0 to 45
+          // r is high, mod p
+          pR = 1.0-((float)t/45);
+        }
+        // roll here is neg
+        rR = -abs(rR);
+
+      }
+
+      // now we calculate an angle for PITCH and ROLL from wp_distance
+      // 1 degree = 10, 10 degrees = 100
+      // if wp_distance == 100 (1m) then ANGPERCM 2 will be 100/2=50 which is 5 degrees for every meter
+      #define ANGPERCM 2
+
+      // should use GPS_calc_velocity to limit this to a speed, then adjust angle dynamically to maintain that speed
+      // right now wind could overpower the max angle (constrained at 10deg)
+      // also use acc values
+
+      int16_t rpAngle = wp_distance/ANGPERCM;
+
+      // then we multiply the ratio modifiers
+      // if the ratios above are equal, then this angle will be applied to both PITCH and ROLL
+      // we constrain this to +/-100 (10 degrees)
+      nav[ROLL] = constrain(rpAngle*rR, -100, 100);
+      nav[PITCH] = constrain(rpAngle*pR, -100, 100);
+
+      debug[0] = nav[ROLL]; // ROLL ANGLE
+      debug[1] = nav[PITCH]; // PITCH ANGLE
+      debug[2] = error[LON];
+      debug[3] = error[LAT];
+      debug[4] = copterHeading;
+      debug[5] = wp_distance; // distance
+      debug[6] = desiredHdg;
+      debug[7] = hdgOffset; // heading offset
+
 }
 ////////////////////////////////////////////////////////////////////////////////////
 // Calculate the desired nav_lat and nav_lon for distance flying such as RTH

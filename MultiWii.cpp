@@ -315,7 +315,6 @@ conf_t conf;
   // The desired bank towards North (Positive) or South (Negative) : latitude
   // The desired bank towards East (Positive) or West (Negative)   : longitude
   int16_t  nav[2];
-  int16_t  nav_rated[2];    //Adding a rate controller to the navigation to make it smoother
 
   uint8_t nav_mode = NAV_MODE_NONE; // Navigation mode
 
@@ -1187,20 +1186,14 @@ void loop () {
        rcCommand[THROTTLE]+= throttleAngleCorrection;
     }
   #endif
-  
+ 
   #if GPS
     if ( (f.GPS_HOME_MODE || f.GPS_HOLD_MODE) && f.GPS_FIX_HOME ) {
-      float sin_yaw_y = sin(att.heading*0.0174532925f);
-      float cos_yaw_x = cos(att.heading*0.0174532925f);
-      #if defined(NAV_SLEW_RATE)     
-        nav_rated[LON]   += constrain(wrap_18000(nav[LON]-nav_rated[LON]),-NAV_SLEW_RATE,NAV_SLEW_RATE);
-        nav_rated[LAT]   += constrain(wrap_18000(nav[LAT]-nav_rated[LAT]),-NAV_SLEW_RATE,NAV_SLEW_RATE);
-        GPS_angle[ROLL]   = (nav_rated[LON]*cos_yaw_x - nav_rated[LAT]*sin_yaw_y) /10;
-        GPS_angle[PITCH]  = (nav_rated[LON]*sin_yaw_y + nav_rated[LAT]*cos_yaw_x) /10;
-      #else 
-        GPS_angle[ROLL]   = (nav[LON]*cos_yaw_x - nav[LAT]*sin_yaw_y) /10;
-        GPS_angle[PITCH]  = (nav[LON]*sin_yaw_y + nav[LAT]*cos_yaw_x) /10;
-      #endif
+
+      // constrain handled in GPS.cpp
+      GPS_angle[ROLL] = nav[ROLL];
+      GPS_angle[PITCH] = nav[PITCH];
+
     } else {
       GPS_angle[ROLL]  = 0;
       GPS_angle[PITCH] = 0;
