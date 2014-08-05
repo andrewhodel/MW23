@@ -56,7 +56,7 @@ extern att_t att;
 extern plog_t plog;
 #endif
 
-extern int16_t debug[8];
+extern int32_t debug[10];
 
 extern conf_t conf;
 

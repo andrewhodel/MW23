@@ -177,7 +177,7 @@ att_t att;
   uint32_t  ArmedTimeWarningMicroSeconds = 0;
 #endif
 
-int16_t  debug[8];
+int32_t  debug[10];
 
 flags_struct_t f;
 

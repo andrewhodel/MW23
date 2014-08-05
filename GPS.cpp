@@ -813,7 +813,7 @@ static void GPS_calc_poshold(void) {
 
       // heading offset for copter
       // this effectively rotates the XY plane so that the copter is facing toward 0 for the following maths
-      int16_t hdgOffset = desiredHdg-att.heading;
+      int16_t hdgOffset = desiredHdg-copterHeading;
       if (hdgOffset < 0) {
         // add 360
         hdgOffset += 360;
@@ -877,11 +877,11 @@ static void GPS_calc_poshold(void) {
         if (xyRatio < 45) {
           t = 45-xyRatio; // gives a value from 0 to 45
           // r is high, mod p
-          pR = (float)t/45;
+          pR = 1.0-((float)t/45);
         } else if (xyRatio > 45) {
           t = 90-xyRatio; // gives a value from 0 to 45
           // p is high, mod r
-          rR = 1.0-((float)t/45);
+          rR = (float)t/45;
         }
 
       } else if (hdgOffset <=180) {
@@ -891,11 +891,11 @@ static void GPS_calc_poshold(void) {
         if (xyRatio < 45) {
           t = 45-xyRatio; // gives a value from 0 to 45
           // p is high, mod r
-          rR = (float)t/45;
+          rR = 1.0-((float)t/45);
         } else if (xyRatio > 45) {
           t = 90-xyRatio; // gives a value from 0 to 45
           // r is high, mod p
-          pR = 1.0-((float)t/45);
+          pR = (float)t/45;
         }
         // pitch here is neg
         pR = -abs(pR);
@@ -907,11 +907,11 @@ static void GPS_calc_poshold(void) {
         if (xyRatio < 45) {
           t = 45-xyRatio; // gives a value from 0 to 45
           // r is high, mod p
-          pR = (float)t/45;
+          pR = 1.0-((float)t/45);
         } else if (xyRatio > 45) {
           t = 90-xyRatio; // gives a value from 0 to 45
           // p is high, mod r
-          rR = 1.0-((float)t/45);
+          rR = (float)t/45;
         }
         // pitch and roll here are neg
         pR = -abs(pR);
@@ -924,11 +924,11 @@ static void GPS_calc_poshold(void) {
         if (xyRatio < 45) {
           t = 45-xyRatio; // gives a value from 0 to 45
           // p is high, mod r
-          rR = (float)t/45;
+          rR = 1.0-((float)t/45);
         } else if (xyRatio > 45) {
           t = 90-xyRatio; // gives a value from 0 to 45
           // r is high, mod p
-          pR = 1.0-((float)t/45);
+          pR = (float)t/45;
         }
         // roll here is neg
         rR = -abs(rR);
@@ -937,29 +937,32 @@ static void GPS_calc_poshold(void) {
 
       // now we calculate an angle for PITCH and ROLL from wp_distance
       // 1 degree = 10, 10 degrees = 100
-      // if wp_distance == 100 (1m) then ANGPERCM 2 will be 100/2=50 which is 5 degrees for every meter
-      #define ANGPERCM 2
+      // angle per meter of difference, 10 = 1 degree
+      #define ANGPERMETER 15
 
       // should use GPS_calc_velocity to limit this to a speed, then adjust angle dynamically to maintain that speed
-      // right now wind could overpower the max angle (constrained at 10deg)
+      // right now wind could overpower the max angle
       // also use acc values
 
-      int16_t rpAngle = wp_distance/ANGPERCM;
+      int16_t rpAngle = ((float)wp_distance/100.0f)*ANGPERMETER;
 
       // then we multiply the ratio modifiers
       // if the ratios above are equal, then this angle will be applied to both PITCH and ROLL
-      // we constrain this to +/-100 (10 degrees)
-      nav[ROLL] = constrain(rpAngle*rR, -100, 100);
-      nav[PITCH] = constrain(rpAngle*pR, -100, 100);
+      // we limit the angle at GPSANGLELIMIT/10
+      #define GPSANGLELIMIT 150
+      nav[ROLL] = constrain(rpAngle*rR, -GPSANGLELIMIT, GPSANGLELIMIT);
+      nav[PITCH] = constrain(rpAngle*pR, -GPSANGLELIMIT, GPSANGLELIMIT);
 
       debug[0] = nav[ROLL]; // ROLL ANGLE
       debug[1] = nav[PITCH]; // PITCH ANGLE
-      debug[2] = error[LON];
-      debug[3] = error[LAT];
+      debug[2] = GPS_coord[LAT];
+      debug[3] = GPS_coord[LON];
       debug[4] = copterHeading;
       debug[5] = wp_distance; // distance
       debug[6] = desiredHdg;
       debug[7] = hdgOffset; // heading offset
+      debug[8] = GPS_WP[LAT];
+      debug[9] = GPS_WP[LON];
 
 }
 ////////////////////////////////////////////////////////////////////////////////////

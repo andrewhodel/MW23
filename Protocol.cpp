@@ -581,7 +581,7 @@ void evaluateCommand() {
      headSerialReply(0);
      break;
    case MSP_DEBUG:
-     s_struct((uint8_t*)&debug,16);
+     s_struct((uint8_t*)&debug,40);
      break;
    #ifdef DEBUGMSG
    case MSP_DEBUGMSG:
